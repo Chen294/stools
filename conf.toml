@@ -1,0 +1,17 @@
+# sendmail.py
+fromStmp = ''           # 发件人邮箱的STMP服务器
+fromEmail = ''          # 发件人的地址
+fromPassword = ''       # 发件人的密码
+toEmail = ''            # 收件信箱
+path7z = ''             # 7zip的安装路径
+
+# xk.py
+idnumber = ''
+idpasswd = ''
+xk_term = '2018-2019-1'
+xk_interval = '0.5'
+xk_list = [
+    ''
+]
+
+# jwc.py [仅作程序日志用]
