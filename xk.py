@@ -1,6 +1,13 @@
 #-- coding:utf-8 --
 # python 3.7.1
 
+# NOTE: 
+# 1. You need to finish function `recognizeCaptcha` yourself, or invalid after several POSTs
+# 2. Every N times script pretends to relogin. Using `/%` in vim to find N
+# 3. Other settings (like id number, password or something) are edited in `conf.toml`
+# 4. Script is friendly to server
+# 5. No sharing, just for study
+
 import http.cookiejar
 import urllib.request
 import re
@@ -14,22 +21,70 @@ import toml
 def getEncodedPost(json_info):
     return urllib.parse.urlencode(json_info).encode()
 
+# [FIXME] This part is not open-source. Finish it by your on way, please.
+def recognizeCaptcha(data):
+    return ''
+
+def queryKyl(course_code, course_no):
+    postjson = getEncodedPost({
+        'searchtj': course_code,
+        'xq': '0',
+        'jc': '0',
+        'kyl': '0',
+        'kclbdm': ''
+    })
+    try:
+        response = urllib.request.urlopen("http://202.115.47.141/student/courseSelect/freeCourse/courseList", postjson)
+        search_list = re.findall(r'bkskyl.*sflbdm', response.read().decode('utf-8'))
+        for cour in search_list:
+            if course_no == re.findall(r'(?<="kxh\\":\\").*?(?=\\)', cour)[0]:
+                remain = re.findall(r'(?<=bkskyl\\":).*?(?=,)', cour)[0]
+                return remain > '0'    # includes minus number
+        else:
+            return False
+    except:
+        return False
+
 # select
 def applySelection(course_code, course_no):
+    # token
     token = getToken()
     if not token:
         return (False, 'No token.')
+    # captcha
+    try:
+        response = urllib.request.urlopen('http://202.115.47.141/student/courseSelect/selectCourse/getYzmPic')
+        captcha = recognizeCaptcha(response.read())
+    except:
+        return (False, 'Captcha recognition failed.')
+    # posting
     try:
         postjson = getEncodedPost({
-            'fajhh': '3623',
+            'dealType' : '5',
             'kcIds': course_code + '_' + course_no + '_' + term + '-1',  # course id
+            'kcms': '',         # course name (can be ignored)
+            'fajhh': '3623',
+            'sj': '0_0',
+            'searchtj': course_code,     # search keyword (can be ignored)
             'kclbdm': '',
-            'kcms': '',         # course name(can be ignored)
-            'searchtj': '',     # search keyword(can be ignored)
-            'sj': '0_0', 
+            'inputCode': captcha,
             'tokenValue': token
         })
-        html_opener.open("http://202.115.47.141/student/courseSelect/freeCourse/waitingfor?dealType=5", postjson)
+        response = urllib.request.urlopen("http://202.115.47.141/student/courseSelect/selectCourse/checkInputCodeAndSubmit", postjson)
+        if 'ok' not in response.read().decode('utf-8'):
+            return (False, 'Captcha post failed.')
+        postjson = getEncodedPost({
+            'dealType' : '5',
+            'kcIds': course_code + '_' + course_no + '_' + term + '-1',  # course id
+            'kcms': '',         # course name (can be ignored)
+            'fajhh': '3623',
+            'sj': '0_0',
+            'searchtj': course_code,     # search keyword (can be ignored)
+            'kclbdm': ''
+            # 'inputCode': '',
+            # 'tokenValue': token
+        })
+        response = urllib.request.urlopen("http://202.115.47.141/student/courseSelect/selectCourses/waitingfor", postjson)
     except urllib.error.URLError:
         return (False, 'Server busy, when posting selection json.')
         # pass
@@ -39,25 +94,28 @@ def applySelection(course_code, course_no):
             'kcNum': '1',
             'redisKey': str(username) + '5'
         })
-        for _ in range(0, 2):
-            response = urllib.request.urlopen("http://202.115.47.141/student/courseSelect/selectResult/query", postjson)
-            query_result = str(response.read().decode('utf-8'))
-            if '成功' in query_result:
-                haha = ''.join([' ha' for ha in range(random.randint(2, 10))])
-                return (True, 'SELECTION SUCCEEDS!' + haha)
-            elif '已经选择' in query_result:
-                return (True, 'This course has already selected.')
-            elif '时间冲突' in query_result:
-                return (True, 'Time conflicts with the other course.')
-            elif '余量' in query_result or '满' in query_result:
-                return (False, 'This course capacity is full.')
-            elif 'esult' in query_result:
-                try:
-                    return (False, query_result.split('"', 4)[3].split(':')[1])
-                except:
-                    return (False, query_result)
-            print('Still don\'t know success or not..')
+        for _ in range(0, 4):
             time.sleep(interval)
+            try:
+                response = urllib.request.urlopen("http://202.115.47.141/student/courseSelect/selectResult/query", postjson)
+                query_result = str(response.read().decode('utf-8'))
+                if '成功' in query_result:
+                    haha = ''.join([' ha' for ha in range(random.randint(2, 10))])
+                    return (True, 'SELECTION SUCCEEDS! ('+ course_code + '_' + course_no + ') '+ haha + '!')
+                elif '已经选择' in query_result:
+                    return (True, 'This course has already selected.')
+                elif '时间冲突' in query_result:
+                    return (True, 'Time conflicts with the other course.')
+                elif '余量' in query_result or '满' in query_result:
+                    return (False, 'This course capacity is full.')
+                elif 'esult' in query_result:
+                    try:
+                        return (False, query_result.split('"', 4)[3].split(':')[1])
+                    except:
+                        return (False, query_result)
+                print('Still don\'t know success or not..')
+            except:
+                print('Server reset the connection. Likely selection failed.')
         return (False, 'Server is too busy to tell me success or not.')
         
 # delete
@@ -80,7 +138,7 @@ def applyDeletion(course_code, course_no):
         # return result
         delete_result = str(response.read().decode('utf-8'))
         if '成功' in delete_result:
-            return (True, 'DELETION SUCCEEDS!')
+            return (True, 'DELETION SUCCEEDS! ('+ course_code + '_' + course_no + ')')
         elif not delete_result.strip():
             return (True, 'This course has already deleted.')
         else:
@@ -113,18 +171,22 @@ def give_me_a_useragent():
 
 # get token
 def getToken():
+    page_with_token = ""
     try:
         # open delete courses page to find token
-        response = urllib.request.urlopen('http://202.115.47.141/student/courseSelect/quitCourse/index')
+        response = urllib.request.urlopen('http://202.115.47.141/student/courseSelect/courseSelect/index')
+        page_with_token = response.read().decode('utf-8')
     except urllib.error.HTTPError:
         print('Getting token failed..')
         pass
     except urllib.error.URLError:
         print('Network offline! Connect it quickly!')
         pass
-    page_with_token = response.read().decode('utf-8')
     try:
-        return re.findall(r"(?<=tokenValue':').*(?=')", page_with_token)[0]    # re get token
+        # return re.findall(r"(?<=tokenValue':').*(?=')", page_with_token)[0]    # re get token
+        token = re.findall(r'(?<=tokenValue\" value=\").*(?="/>)', page_with_token)[0]    # re get token(revised2019.1.8-19:35)
+        # print(token)
+        return token
     except IndexError:
         print('It\'s not the time..')
         return ""
@@ -176,9 +238,12 @@ def process():
             print('Processing item: ' + i)
             # select
             if i_splits[0] == 'a':
-                result, message = applySelection(i_splits[1], i_splits[2])
-                print(message)
-                if result: courses.remove(i)    # remove item if success
+                if queryKyl(i_splits[1], i_splits[2]):
+                    result, message = applySelection(i_splits[1], i_splits[2])
+                    print(message)
+                    if result: courses.remove(i)    # remove item if success
+                else:
+                    print('Full capacity, or wrong course number.')
             # delete
             elif i_splits[0] == 'd':
                 result, message = applyDeletion(i_splits[1], i_splits[2])
@@ -192,7 +257,7 @@ def process():
             time.sleep(interval)
 
         exec_time += 1
-        if exec_time % 10 == 0:     # every 10 times relogin
+        if exec_time % 20 == 0:     # every many times relogin
             break
         time.sleep(interval)
 
@@ -237,4 +302,5 @@ if __name__ == '__main__':
     exec_time = 1
     while True:
         process()
+        urllib.request.urlopen("http://202.115.47.141/logout") 
         print('\nWait to relogin..')
